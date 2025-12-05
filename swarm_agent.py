@@ -103,9 +103,12 @@ def build_swarm_objects() -> tuple[Swarm, Agent]:
     agent = Agent(
         name="Swarm Worker",
         instructions=(
-            "You are a helpful AI agent that creates short, safe, 3-step plans "
-            "for developers using OpenAI Swarm with MachineID.io to avoid runaway "
-            "agent costs and uncontrolled scaling. Keep responses concise."
+            "You are a helpful AI agent that creates short, practical 3-step plans for developers "
+            "using OpenAI Swarm together with MachineID.io. MachineID.io provides device-level "
+            "gating for workers: each worker registers on startup and validates before running tasks, "
+            "so teams can prevent runaway scaling and keep their agent fleets predictable and under control. "
+            "Keep responses concise, accurate, and focused on how register + validate act as control points "
+            "around Swarm workers."
         ),
     )
 
@@ -160,8 +163,9 @@ def main() -> None:
                 {
                     "role": "user",
                     "content": (
-                        "Give me a simple, 3-step plan for how to use OpenAI Swarm workers "
-                        "together with MachineID.io to prevent runaway agent costs."
+                        "Give me a simple, accurate 3-step plan showing how to use OpenAI Swarm workers "
+                        "with MachineID.io to ensure controlled scaling. Focus on how registering each "
+                        "worker and validating before work prevents runaway spawning or exceeding plan limits."
                     ),
                 }
             ],
