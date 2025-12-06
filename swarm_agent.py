@@ -19,7 +19,7 @@ def get_org_key() -> str:
             "Example:\n"
             "  export MACHINEID_ORG_KEY=org_your_key_here\n"
         )
-    return org_key
+    return org_key.strip()
 
 
 def get_device_id() -> str:
@@ -54,14 +54,16 @@ def register_device(org_key: str, device_id: str) -> Dict[str, Any]:
 
     print(f"✔ register response: status={status}, handler={handler}")
     print("Registration summary:")
-    print(f"  planTier    : {plan_tier}")
-    print(f"  limit       : {limit}")
-    print(f"  devicesUsed : {devices_used}")
-    print(f"  remaining   : {remaining}")
+    if plan_tier is not None:
+        print("  planTier    :", plan_tier)
+    if limit is not None:
+        print("  limit       :", limit)
+    if devices_used is not None:
+        print("  devicesUsed :", devices_used)
+    if remaining is not None:
+        print("  remaining   :", remaining)
     print()
 
-    if status == "limit_reached":
-        print("🚫 Plan limit reached on register. Your Swarm workers should treat this as 'do not start'.")
     return data
 
 
@@ -85,8 +87,8 @@ def validate_device(org_key: str, device_id: str) -> Dict[str, Any]:
 
     status = data.get("status")
     handler = data.get("handler")
-    allowed = data.get("allowed")
-    reason = data.get("reason")
+    allowed = bool(data.get("allowed", False))
+    reason = data.get("reason", "unknown")
     print(f"✔ validate response: status={status}, handler={handler}, allowed={allowed}, reason={reason}")
     print()
     return data
@@ -138,8 +140,8 @@ def main() -> None:
 
     # 3) Validate device before running Swarm
     val = validate_device(org_key, device_id)
-    allowed = val.get("allowed")
-    reason = val.get("reason")
+    allowed = bool(val.get("allowed", False))
+    reason = val.get("reason", "unknown")
 
     print("Validation summary:")
     print("  allowed :", allowed)
