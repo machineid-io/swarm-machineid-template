@@ -8,17 +8,19 @@ The free org key supports **3 devices**, with higher limits available on paid pl
 
 ---
 
-## ⚠️ Python version requirement (important)
+## ⚠️ Python version note (important for Swarm users)
 
-OpenAI Swarm currently installs most reliably on **Python 3.11**.
+OpenAI Swarm and its supporting libraries occasionally depend on packages that **do not support Python 3.13+ yet** (tokenizers, PyO3-based libs, etc.).
 
-Python **3.12 / 3.13 / 3.14** may fail due to ecosystem-level issues (`tiktoken`, PyO3 build limits, etc.).
+To avoid installation errors, the **safest recommended environment** is:
 
-**Recommended:**  
 ```bash
 python3.11 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 ```
+
+Python **3.11** is the most stable version for Swarm today.
 
 ---
 
@@ -38,7 +40,7 @@ source venv/bin/activate
   - `git+https://github.com/openai/swarm.git`  
   - `requests`
 
-This mirrors the same register + validate pattern used in the Python, LangChain, and CrewAI templates — but wired into a real OpenAI Swarm worker.
+This mirrors the same register + validate pattern used in the Python, LangChain, and CrewAI templates.
 
 ---
 
@@ -53,7 +55,7 @@ cd swarm-machineid-template
 
 ---
 
-### 2. Install dependencies
+### 2. Install dependencies (Python 3.11 + venv recommended)
 
 ```bash
 python3.11 -m venv venv
@@ -97,7 +99,7 @@ You will see:
 
 - A register call with plan + usage summary  
 - A validate call  
-- Either **“not allowed / limit reached”** or an OpenAI Swarm-generated output  
+- Either **“not allowed / limit reached”** or a Swarm-generated output  
 
 ---
 
@@ -112,9 +114,9 @@ You will see:
    - `limit_reached` → free tier cap hit  
 4. Calls `/api/v1/devices/validate`:
    - `allowed: true` → worker should run  
-   - `allowed: false` → worker should pause or exit  
+   - `allowed: false` → worker should exit or pause  
 
-This ensures each worker checks in before running and keeps scaling safely controlled.
+This ensures every worker checks in before running and keeps scaling safely controlled.
 
 ---
 
@@ -122,17 +124,16 @@ This ensures each worker checks in before running and keeps scaling safely contr
 
 To integrate MachineID.io:
 
-- Call **register** when your Swarm worker or process starts  
+- Call **register** when your worker starts  
 - Call **validate**:
-  - Before each Swarm run, or  
-  - Before major tasks, or  
-  - Periodically for long-running processes  
+  - Before each Swarm run  
+  - Before major tasks  
+  - Or periodically for long-running agents  
 - Only continue execution when `allowed == true`  
 
-This prevents accidental over-scaling, infinite worker spawning, and runaway cloud costs.
+This prevents runaway Swarm spawning and uncontrolled scaling.
 
-**Drop the same register/validate block into any Swarm worker, background process, or agent.**  
-This is all you need to enforce simple device limits across your entire Swarm fleet.
+**Drop the same register/validate block into any Swarm worker, agent, or background process.**
 
 ---
 
@@ -140,7 +141,7 @@ This is all you need to enforce simple device limits across your entire Swarm fl
 
 Most users generate a free org key from the dashboard.
 
-If you are building meta-agents or automated back-ends that need to bootstrap from zero, you can create an org + key programmatically:
+If you're building meta-agents or automated backends, you can create an org programmatically:
 
 ```bash
 curl -X POST https://machineid.io/api/v1/org/create \
@@ -148,16 +149,16 @@ curl -X POST https://machineid.io/api/v1/org/create \
   -d '{}'
 ```
 
-The response contains a ready-to-use `orgApiKey`.
+The response includes a ready-to-use `orgApiKey`.
 
-(This pattern will get its own dedicated template/repo in the future.)
+(This will get its own dedicated template.)
 
 ---
 
 ## Files in this repo
 
 - `swarm_agent.py` — Swarm starter with MachineID register + validate  
-- `requirements.txt` — Minimal dependencies  
+- `requirements.txt` — Dependencies  
 - `LICENSE` — MIT licensed  
 
 ---
@@ -182,7 +183,7 @@ API → https://machineid.io/api
 ## How plans work (quick overview)
 
 - Plans are per **org**, each with its own `orgApiKey`  
-- Device limits apply to unique `deviceId` values registered through `/api/v1/devices/register`  
-- When you upgrade or change plans, limits update immediately — your Swarm workers do **not** need new code  
+- Device limits apply to unique `deviceId` values  
+- Plan upgrades apply immediately — workers do **not** need new code  
 
 MIT licensed · Built by MachineID.io
