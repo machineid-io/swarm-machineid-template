@@ -6,9 +6,19 @@ A minimal OpenAI Swarm starter showing how to wrap your workers with MachineID.i
 Use this template to prevent runaway agents, enforce hard device limits, and ensure every Swarm worker checks in before doing work.  
 The free org key supports **3 devices**, with higher limits available on paid plans.
 
-> **⚠️ Python Version Note**  
-> OpenAI Swarm currently expects **Python 3.11** due to upstream dependencies (e.g., PyO3 / tiktoken).  
-> If you are on macOS with Python 3.12 or 3.13 installed, you *must* install Python 3.11 to run this template.
+---
+
+## ⚠️ Python version requirement (important)
+
+OpenAI Swarm currently installs most reliably on **Python 3.11**.
+
+Python **3.12 / 3.13 / 3.14** may fail due to ecosystem-level issues (`tiktoken`, PyO3 build limits, etc.).
+
+**Recommended:**  
+```bash
+python3.11 -m venv venv
+source venv/bin/activate
+```
 
 ---
 
@@ -43,7 +53,7 @@ cd swarm-machineid-template
 
 ---
 
-### 2. Install dependencies (Python 3.11 + venv recommended)
+### 2. Install dependencies
 
 ```bash
 python3.11 -m venv venv
