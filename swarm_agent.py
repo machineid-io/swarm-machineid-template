@@ -1,7 +1,7 @@
 import os
 import sys
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import requests
 from swarm import Agent, Swarm
@@ -19,7 +19,7 @@ def get_org_key() -> str:
             "Example:\n"
             "  export MACHINEID_ORG_KEY=org_your_key_here\n"
         )
-    return org_key.strip()
+    return org_key
 
 
 def get_device_id() -> str:
@@ -31,9 +31,7 @@ def register_device(org_key: str, device_id: str) -> Dict[str, Any]:
         "x-org-key": org_key,
         "Content-Type": "application/json",
     }
-    payload = {
-        "deviceId": device_id,
-    }
+    payload = {"deviceId": device_id}
 
     print(f"→ Registering device '{device_id}' via {REGISTER_URL} ...")
     resp = requests.post(REGISTER_URL, headers=headers, json=payload, timeout=10)
@@ -54,26 +52,20 @@ def register_device(org_key: str, device_id: str) -> Dict[str, Any]:
 
     print(f"✔ register response: status={status}, handler={handler}")
     print("Registration summary:")
-    if plan_tier is not None:
-        print("  planTier    :", plan_tier)
-    if limit is not None:
-        print("  limit       :", limit)
-    if devices_used is not None:
-        print("  devicesUsed :", devices_used)
-    if remaining is not None:
-        print("  remaining   :", remaining)
+    print(f"  planTier    : {plan_tier}")
+    print(f"  limit       : {limit}")
+    print(f"  devicesUsed : {devices_used}")
+    print(f"  remaining   : {remaining}")
     print()
 
+    if status == "limit_reached":
+        print("🚫 Plan limit reached on register. Your Swarm workers should treat this as 'do not start'.")
     return data
 
 
 def validate_device(org_key: str, device_id: str) -> Dict[str, Any]:
-    headers = {
-        "x-org-key": org_key,
-    }
-    params = {
-        "deviceId": device_id,
-    }
+    headers = {"x-org-key": org_key}
+    params = {"deviceId": device_id}
 
     print(f"→ Validating device '{device_id}' via {VALIDATE_URL} ...")
     resp = requests.get(VALIDATE_URL, headers=headers, params=params, timeout=10)
@@ -87,14 +79,14 @@ def validate_device(org_key: str, device_id: str) -> Dict[str, Any]:
 
     status = data.get("status")
     handler = data.get("handler")
-    allowed = bool(data.get("allowed", False))
-    reason = data.get("reason", "unknown")
+    allowed = data.get("allowed")
+    reason = data.get("reason")
     print(f"✔ validate response: status={status}, handler={handler}, allowed={allowed}, reason={reason}")
     print()
     return data
 
 
-def build_swarm_objects() -> tuple[Swarm, Agent]:
+def build_swarm_objects() -> Tuple[Swarm, Agent]:
     """
     Build a minimal Swarm setup:
     - One agent
@@ -102,15 +94,24 @@ def build_swarm_objects() -> tuple[Swarm, Agent]:
     """
     client = Swarm()
 
+    # ⭐ Tightened instructions:
+    # - MachineID.io is device-level gating only
+    # - No dashboards / analytics / monitoring claims
     agent = Agent(
         name="Swarm Worker",
         instructions=(
-            "You are a helpful AI agent that creates short, practical 3-step plans for developers "
-            "using OpenAI Swarm together with MachineID.io. MachineID.io provides device-level "
-            "gating for workers: each worker registers on startup and validates before running tasks, "
-            "so teams can prevent runaway scaling and keep their agent fleets predictable and under control. "
-            "Keep responses concise, accurate, and focused on how register + validate act as control points "
-            "around Swarm workers."
+            "You create short, practical 3-step plans for developers using OpenAI Swarm together "
+            "with MachineID.io. MachineID.io is a lightweight device-level gate: each worker has a "
+            "deviceId, registers once, and validates before running tasks so teams can enforce simple "
+            "device limits and prevent runaway scaling.\n\n"
+            "Focus ONLY on:\n"
+            "- assigning a deviceId per worker,\n"
+            "- registering the worker,\n"
+            "- validating before work, and\n"
+            "- stopping workers when validation fails or limits are reached.\n\n"
+            "Do NOT describe MachineID.io as a monitoring system, analytics dashboard, spend tracker, "
+            "or real-time observability tool. Keep responses concise, accurate, and focused only on "
+            "register, validate, and stopping workers on validation failure."
         ),
     )
 
@@ -140,8 +141,8 @@ def main() -> None:
 
     # 3) Validate device before running Swarm
     val = validate_device(org_key, device_id)
-    allowed = bool(val.get("allowed", False))
-    reason = val.get("reason", "unknown")
+    allowed = val.get("allowed")
+    reason = val.get("reason")
 
     print("Validation summary:")
     print("  allowed :", allowed)
@@ -166,8 +167,12 @@ def main() -> None:
                     "role": "user",
                     "content": (
                         "Give me a simple, accurate 3-step plan showing how to use OpenAI Swarm workers "
-                        "with MachineID.io to ensure controlled scaling. Focus on how registering each "
-                        "worker and validating before work prevents runaway spawning or exceeding plan limits."
+                        "with MachineID.io to keep scaling under control. MachineID.io is a device-level gate "
+                        "that uses deviceId + register + validate to enforce simple limits and stop workers "
+                        "when validation fails or limits are reached.\n\n"
+                        "Do NOT describe MachineID.io as a monitoring system, dashboard, analytics layer, or "
+                        "spend tracker. Focus ONLY on registering workers, validating before tasks, and "
+                        "stopping or not starting workers when validation fails."
                     ),
                 }
             ],
