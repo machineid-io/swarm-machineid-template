@@ -137,23 +137,6 @@ This prevents runaway Swarm spawning and uncontrolled scaling.
 
 ---
 
-## Optional: fully automated org creation
-
-Most users generate a free org key from the dashboard.
-
-If you're building meta-agents or automated backends, you can create an org programmatically:
-
-```bash
-curl -X POST https://machineid.io/api/v1/org/create \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-The response includes a ready-to-use `orgApiKey`.
-
-(This will get its own dedicated template.)
-
----
 
 ## Files in this repo
 
