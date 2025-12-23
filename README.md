@@ -1,7 +1,7 @@
-# MachineID.io + OpenAI Swarm Starter Template
-### Add device limits to Swarm workers with one small register/validate block.
+# MachineID + OpenAI Swarm Starter Template
+### Add hard device limits to Swarm workers with one small register/validate block.
 
-A minimal OpenAI Swarm starter showing how to wrap your workers with MachineID.io device registration and validation.
+A minimal OpenAI Swarm starter showing how to wrap your workers with MachineID device registration and validation.
 
 Use this template to prevent runaway agents, enforce hard device limits, and ensure every Swarm worker checks in before doing work.  
 The free org key supports **3 devices**, with higher limits available on paid plans.
@@ -10,9 +10,9 @@ The free org key supports **3 devices**, with higher limits available on paid pl
 
 ## ⚠️ Python version note (important for Swarm users)
 
-OpenAI Swarm and its supporting libraries occasionally depend on packages that **do not support Python 3.13+ yet** (tokenizers, PyO3-based libs, etc.).
+OpenAI Swarm and supporting libraries can depend on packages that do not support Python 3.13+ yet.
 
-To avoid installation errors, the **safest recommended environment** is:
+To avoid installation errors, the safest recommended environment is:
 
 ```bash
 python3.11 -m venv venv
@@ -20,7 +20,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Python **3.11** is the most stable version for Swarm today.
+Python **3.11** is the most stable choice for Swarm today.
 
 ---
 
@@ -28,13 +28,15 @@ Python **3.11** is the most stable version for Swarm today.
 
 - `swarm_agent.py`:
   - Reads `MACHINEID_ORG_KEY` from the environment  
-  - Uses a default `deviceId` of `swarm-worker-01` (override with `MACHINEID_DEVICE_ID`)  
+  - Uses a default `deviceId` of `swarm:worker-01` (override with `MACHINEID_DEVICE_ID`)  
   - Calls **POST** `/api/v1/devices/register` with `x-org-key` and a `deviceId`  
-  - Calls **GET** `/api/v1/devices/validate` before running Swarm  
-  - Prints clear status:
-    - `ok` / `exists` / `restored`  
-    - `limit_reached` (free tier = 3 devices)  
-    - `allowed` / `not allowed`
+  - Calls **POST** `/api/v1/devices/validate` (canonical) before running Swarm  
+  - Enforces a **hard gate**:
+    - If `allowed == false`, execution stops immediately  
+  - Prints stable decision metadata:
+    - `allowed`
+    - `code`
+    - `request_id`
 
 - `requirements.txt`:
   - `git+https://github.com/openai/swarm.git`  
@@ -78,7 +80,12 @@ Copy the key (it begins with `org_`)
 ```bash
 export MACHINEID_ORG_KEY=org_your_org_key_here
 export OPENAI_API_KEY=sk_your_openai_key_here
-export MACHINEID_DEVICE_ID=swarm-worker-01   # optional override
+```
+
+Optional override:
+
+```bash
+export MACHINEID_DEVICE_ID=swarm:worker-01
 ```
 
 **One-liner (run immediately):**
@@ -98,23 +105,17 @@ python3.11 swarm_agent.py
 You will see:
 
 - A register call with plan + usage summary  
-- A validate call  
-- Either **“not allowed / limit reached”** or a Swarm-generated output  
+- A validate decision (`allowed/code/request_id`)  
+- Either an immediate stop (not allowed) or a Swarm-generated output  
 
 ---
 
 ## How the script works
 
-1. Reads `MACHINEID_ORG_KEY` from the environment  
-2. Uses a default `deviceId` of `swarm-worker-01`  
-3. Calls `/api/v1/devices/register`:
-   - `ok` → new device created  
-   - `exists` → device already registered  
-   - `restored` → previously revoked device restored  
-   - `limit_reached` → free tier cap hit  
-4. Calls `/api/v1/devices/validate`:
-   - `allowed: true` → worker should run  
-   - `allowed: false` → worker should exit or pause  
+1. The worker registers itself with MachineID (idempotent)  
+2. It validates (POST, canonical) before running any work  
+3. If `allowed == true`, it runs the Swarm workflow  
+4. If `allowed == false`, it exits immediately (hard gate)  
 
 This ensures every worker checks in before running and keeps scaling safely controlled.
 
@@ -122,21 +123,18 @@ This ensures every worker checks in before running and keeps scaling safely cont
 
 ## Using this in your own Swarm workers
 
-To integrate MachineID.io:
+To integrate MachineID:
 
 - Call **register** when your worker starts  
 - Call **validate**:
   - Before each Swarm run  
   - Before major tasks  
   - Or periodically for long-running agents  
-- Only continue execution when `allowed == true`  
+- Stop execution immediately when `allowed == false`  
 
-This prevents runaway Swarm spawning and uncontrolled scaling.
-
-**Drop the same register/validate block into any Swarm worker, agent, or background process.**
+Drop the same register/validate block into any Swarm worker, agent, or background process.
 
 ---
-
 
 ## Files in this repo
 
@@ -150,8 +148,7 @@ This prevents runaway Swarm spawning and uncontrolled scaling.
 
 Dashboard → https://machineid.io/dashboard  
 Generate free org key → https://machineid.io  
-Docs → https://machineid.io/docs  
-API → https://machineid.io/api  
+Docs → https://machineid.io/docs   
 
 ---
 
@@ -166,7 +163,7 @@ API → https://machineid.io/api
 ## How plans work (quick overview)
 
 - Plans are per **org**, each with its own `orgApiKey`  
-- Device limits apply to unique `deviceId` values  
-- Plan upgrades apply immediately — workers do **not** need new code  
+- Device limits apply to unique `deviceId` values registered via `/api/v1/devices/register`  
+- Plan changes take effect immediately — workers do not need new code  
 
-MIT licensed · Built by MachineID.io
+MIT licensed · Built by MachineID
