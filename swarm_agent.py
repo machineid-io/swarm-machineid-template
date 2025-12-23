@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import os
 import sys
 import time
@@ -6,112 +8,106 @@ from typing import Any, Dict, Tuple
 import requests
 from swarm import Agent, Swarm
 
-BASE_URL = "https://machineid.io"
+BASE_URL = os.getenv("MACHINEID_BASE_URL", "https://machineid.io").rstrip("/")
 REGISTER_URL = f"{BASE_URL}/api/v1/devices/register"
 VALIDATE_URL = f"{BASE_URL}/api/v1/devices/validate"
 
 
-def get_org_key() -> str:
-    org_key = os.getenv("MACHINEID_ORG_KEY")
-    if not org_key:
+def env(name: str, default: str | None = None) -> str | None:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    v = v.strip()
+    return v if v else default
+
+
+def must_env(name: str) -> str:
+    v = env(name)
+    if not v:
         raise RuntimeError(
-            "Missing MACHINEID_ORG_KEY. Set it in your environment or via a .env file.\n"
+            f"Missing {name}.\n"
             "Example:\n"
             "  export MACHINEID_ORG_KEY=org_your_key_here\n"
+            "  export OPENAI_API_KEY=sk_your_openai_key_here\n"
         )
-    return org_key
+    return v
+
+
+def get_org_key() -> str:
+    return must_env("MACHINEID_ORG_KEY")
 
 
 def get_device_id() -> str:
-    return os.getenv("MACHINEID_DEVICE_ID", "swarm-worker-01")
+    # Stable, non-identifying default (no hostname / user info).
+    return env("MACHINEID_DEVICE_ID", "swarm:worker-01") or "swarm:worker-01"
 
 
-def register_device(org_key: str, device_id: str) -> Dict[str, Any]:
-    headers = {
-        "x-org-key": org_key,
-        "Content-Type": "application/json",
-    }
-    payload = {"deviceId": device_id}
-
-    print(f"→ Registering device '{device_id}' via {REGISTER_URL} ...")
-    resp = requests.post(REGISTER_URL, headers=headers, json=payload, timeout=10)
+def post_json(url: str, headers: Dict[str, str], payload: Dict[str, Any], timeout_s: int = 12) -> Dict[str, Any]:
+    resp = requests.post(url, headers=headers, json=payload, timeout=timeout_s)
     try:
         data = resp.json()
     except Exception:
-        print("❌ Could not parse JSON from register response.")
-        print("Status code:", resp.status_code)
-        print("Body:", resp.text)
-        raise
+        return {"status": "error", "error": f"Non-JSON response (HTTP {resp.status_code})", "http": resp.status_code, "body": resp.text}
 
-    status = data.get("status")
-    handler = data.get("handler")
-    plan_tier = data.get("planTier")
-    limit = data.get("limit")
-    devices_used = data.get("devicesUsed")
-    remaining = data.get("remaining")
+    if resp.status_code >= 400:
+        if isinstance(data, dict) and data.get("error"):
+            return {"status": "error", "error": data.get("error"), "http": resp.status_code}
+        return {"status": "error", "error": f"HTTP {resp.status_code}", "http": resp.status_code, "body": data}
 
-    print(f"✔ register response: status={status}, handler={handler}")
-    print("Registration summary:")
-    print(f"  planTier    : {plan_tier}")
-    print(f"  limit       : {limit}")
-    print(f"  devicesUsed : {devices_used}")
-    print(f"  remaining   : {remaining}")
-    print()
+    return data
 
-    if status == "limit_reached":
-        print("🚫 Plan limit reached on register. Your Swarm workers should treat this as 'do not start'.")
+
+def register_device(org_key: str, device_id: str) -> Dict[str, Any]:
+    headers = {"x-org-key": org_key, "Content-Type": "application/json"}
+    payload = {"deviceId": device_id}
+
+    print(f"→ Registering device '{device_id}'")
+    data = post_json(REGISTER_URL, headers, payload)
+
+    print(f"✔ register status={data.get('status')}")
+    # Treat only ok/exists as success.
+    if data.get("status") not in ("ok", "exists"):
+        if data.get("status") == "limit_reached":
+            print("🚫 Plan limit reached on register. Swarm worker should NOT start.")
+        else:
+            print(f"🚫 Register failed: {data}")
     return data
 
 
 def validate_device(org_key: str, device_id: str) -> Dict[str, Any]:
-    headers = {"x-org-key": org_key}
-    params = {"deviceId": device_id}
+    headers = {"x-org-key": org_key, "Content-Type": "application/json"}
+    payload = {"deviceId": device_id}
 
-    print(f"→ Validating device '{device_id}' via {VALIDATE_URL} ...")
-    resp = requests.get(VALIDATE_URL, headers=headers, params=params, timeout=10)
-    try:
-        data = resp.json()
-    except Exception:
-        print("❌ Could not parse JSON from validate response.")
-        print("Status code:", resp.status_code)
-        print("Body:", resp.text)
-        raise
+    print(f"→ Validating device '{device_id}' (POST canonical)")
+    data = post_json(VALIDATE_URL, headers, payload)
 
-    status = data.get("status")
-    handler = data.get("handler")
     allowed = data.get("allowed")
-    reason = data.get("reason")
-    print(f"✔ validate response: status={status}, handler={handler}, allowed={allowed}, reason={reason}")
-    print()
+    code = data.get("code")
+    request_id = data.get("request_id")
+    print(f"✔ decision allowed={allowed} code={code} request_id={request_id}")
     return data
 
 
 def build_swarm_objects() -> Tuple[Swarm, Agent]:
     """
-    Build a minimal Swarm setup:
+    Minimal Swarm setup:
     - One agent
     - One Swarm client
     """
     client = Swarm()
 
-    # ⭐ Tightened instructions:
-    # - MachineID.io is device-level gating only
-    # - No dashboards / analytics / monitoring claims
     agent = Agent(
         name="Swarm Worker",
         instructions=(
-            "You create short, practical 3-step plans for developers using OpenAI Swarm together "
-            "with MachineID.io. MachineID.io is a lightweight device-level gate: each worker has a "
-            "deviceId, registers once, and validates before running tasks so teams can enforce simple "
-            "device limits and prevent runaway scaling.\n\n"
+            "You create short, practical 3-step plans for developers using OpenAI Swarm together with MachineID. "
+            "MachineID is a lightweight device-level gate: each worker has a deviceId, registers once, and validates "
+            "before running tasks so teams can enforce simple device limits and prevent runaway scaling.\n\n"
             "Focus ONLY on:\n"
             "- assigning a deviceId per worker,\n"
             "- registering the worker,\n"
             "- validating before work, and\n"
             "- stopping workers when validation fails or limits are reached.\n\n"
-            "Do NOT describe MachineID.io as a monitoring system, analytics dashboard, spend tracker, "
-            "or real-time observability tool. Keep responses concise, accurate, and focused only on "
-            "register, validate, and stopping workers on validation failure."
+            "Do NOT describe MachineID as monitoring, analytics, observability, or spend tracking."
         ),
     )
 
@@ -119,44 +115,38 @@ def build_swarm_objects() -> Tuple[Swarm, Agent]:
 
 
 def main() -> None:
-    # 1) Load org key and device ID
+    # Required env
     org_key = get_org_key()
+    _ = must_env("OPENAI_API_KEY")  # Swarm/OpenAI provider requires it; fail fast with clear error.
+
     device_id = get_device_id()
 
     print("✔ MACHINEID_ORG_KEY loaded:", org_key[:12] + "...")
-    print("Using deviceId:", device_id)
+    print("Using base_url:", BASE_URL)
+    print("Using device_id:", device_id)
     print()
 
-    # 2) Register device with MachineID.io
+    # 1) Register (idempotent). Only ok/exists is success.
     reg = register_device(org_key, device_id)
-    reg_status = reg.get("status")
+    if reg.get("status") not in ("ok", "exists"):
+        sys.exit(1)
 
-    if reg_status == "limit_reached":
-        print("🚫 Plan limit reached on register. Swarm run will NOT start.")
-        sys.exit(0)
-
-    # Optional small pause to mirror real startup behavior
-    print("Waiting 2 seconds before validating...")
-    time.sleep(2)
-
-    # 3) Validate device before running Swarm
+    # 2) Validate (hard gate)
+    time.sleep(1)
     val = validate_device(org_key, device_id)
-    allowed = val.get("allowed")
-    reason = val.get("reason")
 
-    print("Validation summary:")
-    print("  allowed :", allowed)
-    print("  reason  :", reason)
-    print()
+    allowed = bool(val.get("allowed", False))
+    code = val.get("code")
+    request_id = val.get("request_id")
 
     if not allowed:
-        print("🚫 Device is NOT allowed. Swarm run will NOT start.")
+        print("🚫 Execution denied (hard gate). Swarm run will NOT start.")
+        print(f"   code={code} request_id={request_id}")
         sys.exit(0)
 
-    print("✅ Device is allowed. Building Swarm client and agent and starting the run...")
-    print()
+    print("✅ Execution allowed. Starting Swarm run.\n")
 
-    # 4) Build and run the Swarm workflow
+    # 3) Run Swarm workflow
     client, agent = build_swarm_objects()
 
     try:
@@ -166,13 +156,9 @@ def main() -> None:
                 {
                     "role": "user",
                     "content": (
-                        "Give me a simple, accurate 3-step plan showing how to use OpenAI Swarm workers "
-                        "with MachineID.io to keep scaling under control. MachineID.io is a device-level gate "
-                        "that uses deviceId + register + validate to enforce simple limits and stop workers "
-                        "when validation fails or limits are reached.\n\n"
-                        "Do NOT describe MachineID.io as a monitoring system, dashboard, analytics layer, or "
-                        "spend tracker. Focus ONLY on registering workers, validating before tasks, and "
-                        "stopping or not starting workers when validation fails."
+                        "Give me a simple, accurate 3-step plan showing how to use OpenAI Swarm workers with MachineID "
+                        "to keep scaling under control. Focus ONLY on deviceId, register, validate, and stopping workers "
+                        "when validation fails or limits are reached."
                     ),
                 }
             ],
